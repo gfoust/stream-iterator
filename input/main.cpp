@@ -2,11 +2,17 @@
 #include <string>
 #include <vector>
 #include "input.hpp"
-using namespace std;
-using input::scan;
-using input::untilCount;
-using input::untilSentinel;
-using input::untilEof;
+
+using std::cerr;
+using std::cin;
+using std::cout;
+using std::endl;
+using std::string;
+
+using cgf::scan;
+using cgf::untilCount;
+using cgf::untilSentinel;
+using cgf::untilEof;
 
 // Adds all elements between two iterators (assumes at least 1 element)
 template<typename ItT>
@@ -32,7 +38,7 @@ int main() {
 
 
     // reusable variable
-    input::StreamIterator<string> instr(cin);
+    cgf::IstreamIterator<string> instr(cin);
 
     // read three strings
     cout << sum1(instr, instr.untilCount(3)) << '\n';
@@ -41,11 +47,14 @@ int main() {
     cout << sum1(instr, instr.untilSentinel("a")) << '\n';
 
 
+    // alternative way to define a variable
+    auto indub = scan<double>(cin);
+
     // read doubles until end of file
-    cout << sum1(scan<double>(cin), untilEof<double>()) << '\n';
+    cout << sum1(indub, indub.untilEof()) << '\n';
   }
   catch (std::exception& err) {
-    // throws std::istream::failure if input fails *and* you try to use the value
+    // throws std::istream::failure if input fails
     // throws std::bad_variant_access if you try to increment or dereference a stopping iterator
     cerr << err.what() << endl;
   }

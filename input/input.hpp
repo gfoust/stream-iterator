@@ -1,60 +1,79 @@
 // Copyright 2023, Gabriel Foust, All rights reserved
 #pragma once
+#include <cstdint>
 #include <istream>
-#include <variant>
+#include <iterator>
+#include <type_traits>
 #include <utility>
+#include <variant>
+//#include <concepts>
 
-namespace input {
-
-  /*========================================================
-   * Strong types to represent stopping conditions
-   */
-
-  struct Eof {
-    bool operator ==(Eof) const {
-      return true;
-    }
-    bool operator !=(Eof) const {
-      return true;
-    }
-  };
-
-  struct Count {
-    size_t value;
-
-    bool operator ==(Count rhs) const {
-      return value == rhs.value;
-    }
-    bool operator !=(Count rhs) const {
-      return value != rhs.value;
-    }
-  };
-
-  template<typename T>
-  struct Sentinel {
-    T value;
-
-    bool operator ==(Sentinel const& rhs) const {
-      return value == rhs.value;
-    }
-    bool operator !=(Sentinel const& rhs) const {
-      return value != rhs.value;
-    }
-  };
+namespace cgf {
 
   /*========================================================
-   * StreamIterator
+   * IstreamIterator
    */
   template<typename T>
-  class StreamIterator {
+  class IstreamIterator {
+  public:
+    /*------------------------------------------------------
+     * Iterator traits
+     */
+    using difference_type = ptrdiff_t;
+    using value_type = std::remove_cv_t<T>;
+    using pointer = value_type*;
+    using reference = value_type&;
+    using iterator_category = std::input_iterator_tag;
 
-    // State of an iterator that is used for input
+    /*------------------------------------------------------
+     * Strong types to represent stopping conditions
+     */
+    struct Eof {
+      bool operator ==(Eof) const {
+        return true;
+      }
+      bool operator !=(Eof) const {
+        return true;
+      }
+    };
+
+    struct Count {
+      size_t value;
+
+      bool operator ==(Count rhs) const {
+        return value == rhs.value;
+      }
+      bool operator !=(Count rhs) const {
+        return value != rhs.value;
+      }
+    };
+
+    struct Sentinel {
+      value_type value;
+
+      bool operator ==(Sentinel const& rhs) const {
+        return value == rhs.value;
+      }
+      bool operator !=(Sentinel const& rhs) const {
+        return value != rhs.value;
+      }
+    };
+
+  private:
+    /*------------------------------------------------------
+     * Implementation
+     */
+
+    // State of an iterator being used for input
     struct InputState {
       std::istream* in;
       size_t count;
       mutable bool valid;
-      mutable T value;
+      mutable value_type value;
     };
+
+    // Possible object states
+    std::variant<Eof, Count, Sentinel, InputState> _impl;
 
     // Commit to reading the next value
     static
@@ -67,7 +86,7 @@ namespace input {
 
     // Commit to reading the next value and throw exception on failure
     static
-    T& commit(InputState const& state) {
+    reference hardCommit(InputState const& state) {
       softCommit(state);
       if (!*state.in) {
         throw std::istream::failure("input failure");
@@ -85,12 +104,12 @@ namespace input {
         return lhs.in == rhs.in;
       }
 
-      bool operator ()(InputState const& lhs, Sentinel<T> const& rhs) {
-        return commit(lhs) == rhs.value;
+      bool operator ()(InputState const& lhs, Sentinel const& rhs) {
+        return hardCommit(lhs) == rhs.value;
       }
 
-      bool operator ()(Sentinel<T> const& lhs, InputState const& rhs) {
-        return lhs.value == commit(rhs);
+      bool operator ()(Sentinel const& lhs, InputState const& rhs) {
+        return lhs.value == hardCommit(rhs);
       }
 
       bool operator ()(InputState const& lhs, Count rhs) {
@@ -121,68 +140,62 @@ namespace input {
         return false;
       }
     };
-    /* end of Equivalent
-     *----------------------------------------------------*/
-
-    // This one object can represent either a stopping iterator or an input iterator
-    std::variant<Eof, Count, Sentinel<T>, InputState> _impl;
 
   public:
-
     /*------------------------------------------------------
      * Constructors
      */
 
     explicit
-    StreamIterator(std::istream& in) : _impl{ InputState{ &in, 0, false, {} } } {
+    IstreamIterator(std::istream& in) : _impl{ InputState{ &in, 0, false, {} } } {
     }
 
     explicit
-    StreamIterator(Count count) : _impl{ count } {
+    IstreamIterator(Count count) : _impl{ count } {
     }
 
     explicit
-    StreamIterator(Sentinel<T> value) : _impl{ std::move(value) } {
+    IstreamIterator(Sentinel value) : _impl{ std::move(value) } {
     }
 
     explicit
-    StreamIterator(Eof eof = {}) : _impl{ eof } {
+    IstreamIterator(Eof eof = {}) : _impl{ eof } {
     }
 
     /*------------------------------------------------------
      * Iterator operators
      */
 
-    T& operator *() const {
-      return commit(std::get<InputState>(_impl));
+    reference operator *() const {
+      return hardCommit(std::get<InputState>(_impl));
     }
 
-    T* operator ->() const {
-      return &commit(std::get<InputState>(_impl));
+    pointer operator ->() const {
+      return &hardCommit(std::get<InputState>(_impl));
     }
 
-    StreamIterator& operator ++() {
+    IstreamIterator& operator ++() {
       auto& state = std::get<InputState>(_impl);
-      softCommit(state);
+      hardCommit(state);
       ++state.count;
       state.valid = false;
       return *this;
     }
 
-    StreamIterator operator ++(int) {
+    IstreamIterator operator ++(int) {
       auto& state = std::get<InputState>(_impl);
-      softCommit(state);
+      hardCommit(state);
       auto copy = std::move(*this);
       ++state.count;
       state.valid = false;
       return copy;
     }
 
-    bool operator ==(StreamIterator const& rhs) {
+    bool operator ==(IstreamIterator const& rhs) {
       return std::visit(Equivalent{}, _impl, rhs._impl);
     }
 
-    bool operator !=(StreamIterator const& rhs) {
+    bool operator !=(IstreamIterator const& rhs) {
       return !std::visit(Equivalent{}, _impl, rhs._impl);
     }
 
@@ -191,18 +204,18 @@ namespace input {
      */
 
     static
-    StreamIterator untilCount(size_t count) {
-      return StreamIterator(Count{ count });
+    IstreamIterator untilCount(size_t count) {
+      return IstreamIterator(Count{ count });
     }
 
     static
-    StreamIterator untilSentinel(T value) {
-      return StreamIterator(Sentinel<T>{ std::move(value) });
+    IstreamIterator untilSentinel(value_type value) {
+      return IstreamIterator(Sentinel{ std::move(value) });
     }
 
     static
-    StreamIterator untilEof() {
-      return StreamIterator(Eof{});
+    IstreamIterator untilEof() {
+      return IstreamIterator(Eof{});
     }
   };
 
@@ -211,23 +224,25 @@ namespace input {
    */
 
   template<typename T> inline
-  StreamIterator<T> scan(std::istream& in) {
-    return StreamIterator<T>(in);
+  IstreamIterator<T> scan(std::istream& in) {
+    return IstreamIterator<T>(in);
   }
 
   template<typename T> inline
-  StreamIterator<T> untilCount(size_t count) {
-    return StreamIterator<T>(Count{ count });
+  IstreamIterator<T> untilCount(size_t count) {
+    return IstreamIterator<T>(typename IstreamIterator<T>::Count{ count });
   }
 
   template<typename T> inline
-  StreamIterator<T> untilSentinel(T value) {
-    return StreamIterator<T>(Sentinel<T>{ std::move(value) });
+  IstreamIterator<T> untilSentinel(T value) {
+    return IstreamIterator<T>(typename IstreamIterator<T>::Sentinel{ std::move(value) });
   }
 
   template<typename T> inline
-  StreamIterator<T> untilEof() {
-    return StreamIterator<T>(Eof{});
+  IstreamIterator<T> untilEof() {
+    return IstreamIterator<T>(typename IstreamIterator<T>::Eof{});
   }
+
+  //static_assert(std::input_iterator<StreamIterator<double>>);
 
 }
